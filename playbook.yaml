@@ -66,9 +66,3 @@
       ansible.builtin.service:
         name: elasticsearch.service
         state: started
-- 
-  name:
-  hosts: master
-  tasks:
-    - name: cat nodes
-      shell: curl -XGET -k -u elastic:`cat /tmp/password.txt` https://"{ansible_all_ipv4_addresses}":9200/_cat/nodes
