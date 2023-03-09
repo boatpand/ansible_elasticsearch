@@ -1,6 +1,74 @@
+-
+  name: add hosts to /etc/hosts
+  hosts: all
+  tasks:
+    - name: add hosts
+      ansible.builtin.lineinfile:
+        path: /etc/security/limits.conf
+        line: "{{ item.ip }}    {{item.hostname}}"
+        loop:
+          - { ip: '10.0.0.22', hostname: 'node1' }
+          - { ip: '10.0.0.23', hostname: 'node2' }
+          - { ip: '10.0.0.24', hostname: 'node3' }
+        state: present
+        create: yes
+-
+  name: copy key from master to data node
+  hosts: master
+  tasks:
+    - name: gen key
+      shell: ssh-copy-id "{{item.hostname}}"
+      loop:
+        - { hostname: 'node2' }
+        - { hostname: 'node3' }
+-
+  name: install elasticsearch
+  hosts: elasticsearch
+  tasks:
+    - name: download elasticsearch
+      ansible.builtin.get_url:
+        url: https://artifacts.elastic.co/downloads/elasticsearch/elasticsearch-8.6.2-x86_64.rpm
+        dest: /tmp
+        mode: '0755'
+    - name: install elasticsearch
+      yum:
+        name: /tmp/elasticsearch-8.6.2-x86_64.rpm
+        state: present
+    - name: enable service elasticsearch
+      ansible.builtin.systemd:
+        daemon_reload: true
+        name: elasticsearch.service
+        enabled: true
+-
+  name: master create token for create cluster
+  hosts: master
+  tasks:
+    - name: create cluster
+      ansible.builtin.service:
+        name: elasticsearch.service
+        state: started
+    - name: master create token
+      shell: /usr/share/elasticsearch/bin/elasticsearch-create-enrollment-token -s node > /tmp/token.txt
+    - name: get default password
+      shell: /usr/share/elasticsearch/bin/elasticsearch-reset-password -b -u elastic > /tmp/password.txt
+    - name: copy file token to data
+      shell: scp /tmp/token.txt root@"{{ item.ip }}":/tmp/token.txt
+      loop:
+        - { ip: '10.0.0.23' }
+        - { ip: '10.0.0.24' }
+-
+  name: data node join cluster
+  hosts: data
+  tasks:
+    - name: join cluster by using token
+      shell: yes | /usr/share/elasticsearch/bin/elasticsearch-reconfigure-node -s --enrollment-token `cat /tmp/token.txt`
+    - name: start elasticsearch data nodes
+      ansible.builtin.service:
+        name: elasticsearch.service
+        state: started
 - 
   name:
   hosts: master
   tasks:
     - name: cat nodes
-      shell: cat /tmp/password.txt
+      shell: curl -XGET -k -u elastic:`cat /tmp/password.txt` https://"{ansible_all_ipv4_addresses}":9200/_cat/nodes
